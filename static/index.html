@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>YouTube Live & Video Recorder Server</title>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Top Navigation -->
+        <header class="navbar glass">
+            <div class="brand">
+                <div class="logo-icon">🎬</div>
+                <div class="brand-text">
+                    <h1>YouTube Recorder</h1>
+                    <span class="subtext">Server Background Worker</span>
+                </div>
+            </div>
+            <div class="nav-actions">
+                <button id="btnConnect" class="btn btn-secondary btn-icon-text" title="Kết nối từ điện thoại">
+                    <span class="icon">📱</span>
+                    <span class="btn-label">Kết Nối ĐT</span>
+                </button>
+                <button id="btnSettings" class="btn btn-secondary btn-icon-text" title="Cài đặt hệ thống">
+                    <span class="icon">⚙️</span>
+                    <span class="btn-label">Cài Đặt</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- System Status Bar -->
+        <section class="system-bar glass">
+            <div class="status-item">
+                <span class="status-dot online"></span>
+                <span class="status-label">Server:</span>
+                <span class="status-value highlight" id="serverIp">Đang tải...</span>
+            </div>
+            <div class="status-item">
+                <span class="icon">☁️</span>
+                <span class="status-label">Lưu trữ:</span>
+                <span class="status-value truncate" id="storagePath" title="Đường dẫn lưu">Google Drive</span>
+                <span class="badge" id="storageSpace">-- GB trống</span>
+            </div>
+            <div class="status-item cookies-item">
+                <span class="icon">🍪</span>
+                <span class="status-label">Cookies:</span>
+                <span class="badge" id="cookiesStatus">Đang kiểm tra...</span>
+            </div>
+        </section>
+
+        <!-- Main Input Card -->
+        <main class="main-content">
+            <div class="card glass-card download-card">
+                <div class="card-header">
+                    <h2>🎯 Bắt Đầu Tải Video / Livestream</h2>
+                    <span class="badge badge-success">Chạy ngầm - Tắt web thoải mái</span>
+                </div>
+
+                <div class="form-group url-group">
+                    <div class="input-wrapper">
+                        <span class="input-icon">🔗</span>
+                        <input type="text" id="urlInput" placeholder="Dán link YouTube (Livestream hoặc Video thường)..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+                        <button id="btnPaste" class="btn-inline" title="Dán từ Clipboard">📋 Dán</button>
+                        <button id="btnClear" class="btn-inline" title="Xóa">✕</button>
+                    </div>
+                </div>
+
+                <!-- Video Preview Inspector (Appears when checking) -->
+                <div id="videoPreview" class="video-preview-card hidden">
+                    <div class="preview-thumb-box">
+                        <img id="previewThumb" src="" alt="Thumbnail">
+                        <span id="previewLiveBadge" class="live-pill hidden">🔴 TRỰC TIẾP</span>
+                    </div>
+                    <div class="preview-info">
+                        <h4 id="previewTitle" class="preview-title">Tiêu đề video</h4>
+                        <p id="previewUploader" class="preview-meta">👤 Kênh</p>
+                        <p id="previewDetails" class="preview-details">Độ phân giải / Thời lượng</p>
+                    </div>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group flex-1">
+                        <label for="qualitySelect">Chất lượng mong muốn:</label>
+                        <div class="select-wrapper">
+                            <select id="qualitySelect">
+                                <option value="Cao nhất (Best)">Cao nhất (Best)</option>
+                                <option value="2160p (4K)">2160p (4K)</option>
+                                <option value="1440p (2K)">1440p (2K)</option>
+                                <option value="1080p (Full HD)" selected>1080p (Full HD)</option>
+                                <option value="720p (HD)">720p (HD)</option>
+                                <option value="480p">480p</option>
+                                <option value="360p">360p</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="form-actions">
+                        <button id="btnCheck" class="btn btn-secondary">
+                            <span class="icon">🔍</span> Kiểm Tra Link
+                        </button>
+                        <button id="btnStartDownload" class="btn btn-primary pulse">
+                            <span class="icon">🚀</span> BẮT ĐẦU TẢI NGẦM
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Active Running Tasks Section -->
+            <section class="section active-tasks-section">
+                <div class="section-header">
+                    <h3>⚡ Tác Vụ Đang Thực Hiện (<span id="activeCount">0</span>)</h3>
+                    <span class="hint-text">Server tự xử lý tải & ghép nối FFmpeg vào Google Drive</span>
+                </div>
+                <div id="activeTasksList" class="tasks-grid">
+                    <div class="empty-state" id="emptyActive">
+                        <div class="empty-icon">☕</div>
+                        <p>Hiện không có tác vụ nào đang tải. Dán link ở trên để bắt đầu!</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Download History Section -->
+            <section class="section history-section">
+                <div class="section-header">
+                    <h3>📂 Lịch Sử Tải Gần Đây</h3>
+                    <button id="btnRefreshHistory" class="btn btn-small btn-secondary">🔄 Làm mới</button>
+                </div>
+                <div class="card glass-card history-card">
+                    <div id="historyList" class="history-list">
+                        <div class="empty-state" id="emptyHistory">
+                            <p>Chưa có lịch sử tải nào.</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Modal: Mobile Connection / QR Code -->
+        <div id="modalConnect" class="modal-overlay hidden">
+            <div class="modal glass-card">
+                <div class="modal-header">
+                    <h3>📱 Kết Nối Từ Thiết Bị Khác</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body text-center">
+                    <p class="modal-desc">Đảm bảo điện thoại của bạn đang kết nối cùng mạng Wi-Fi với máy tính này.</p>
+                    <div class="qr-container">
+                        <img id="qrCodeImg" src="" alt="QR Code truy cập">
+                    </div>
+                    <div class="ip-box">
+                        <span id="accessUrlText">http://192.168.1.17:8000</span>
+                        <button id="btnCopyUrl" class="btn btn-small btn-primary">Sao Chép</button>
+                    </div>
+                    <p class="small-tip">💡 Dùng camera điện thoại quét mã QR ở trên để mở ngay trang tải mà không cần gõ địa chỉ!</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal: Settings -->
+        <div id="modalSettings" class="modal-overlay hidden">
+            <div class="modal glass-card modal-large">
+                <div class="modal-header">
+                    <h3>⚙️ Cài Đặt Hệ Thống</h3>
+                    <button class="modal-close">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="setting-group">
+                        <label>📁 Thư mục lưu mặc định trên máy/Google Drive:</label>
+                        <input type="text" id="cfgSaveDir" placeholder="G:\My Drive\YT_Recordings">
+                        <span class="field-hint">Video sẽ được lưu thẳng vào thư mục này</span>
+                    </div>
+
+                    <div class="setting-group checkbox-group">
+                        <label class="switch">
+                            <input type="checkbox" id="cfgAutoSubfolder">
+                            <span class="slider"></span>
+                        </label>
+                        <span>Tự động gom video vào thư mục con theo ngày (YYYY-MM-DD)</span>
+                    </div>
+
+                    <div class="setting-group">
+                        <label>🎯 Độ phân giải mặc định:</label>
+                        <select id="cfgDefaultQuality">
+                            <option value="Cao nhất (Best)">Cao nhất (Best)</option>
+                            <option value="2160p (4K)">2160p (4K)</option>
+                            <option value="1440p (2K)">1440p (2K)</option>
+                            <option value="1080p (Full HD)">1080p (Full HD)</option>
+                            <option value="720p (HD)">720p (HD)</option>
+                            <option value="480p">480p</option>
+                        </select>
+                    </div>
+
+                    <hr class="divider">
+
+                    <div class="setting-group">
+                        <label>🤖 Thông Báo Telegram (Bot Token & Chat ID):</label>
+                        <div class="form-row">
+                            <input type="text" id="cfgTeleToken" class="flex-2" placeholder="Telegram Bot Token">
+                            <input type="text" id="cfgTeleChatId" class="flex-1" placeholder="Chat ID">
+                        </div>
+                        <div class="tele-actions">
+                            <button id="btnTestTele" class="btn btn-small btn-secondary">🔔 Gửi Tin Nhắn Thử</button>
+                            <span id="teleMsgResult" class="field-hint"></span>
+                        </div>
+                    </div>
+
+                    <hr class="divider">
+
+                    <div class="setting-group">
+                        <label>🔐 Quản Lý YouTube Cookies (Dành cho video hội viên / giới hạn độ tuổi):</label>
+                        <textarea id="cookiesContent" rows="4" placeholder="Dán nội dung cookies dạng Netscape vào đây hoặc chỉnh sửa..."></textarea>
+                        <div class="cookies-actions">
+                            <button id="btnSaveCookies" class="btn btn-small btn-secondary">💾 Lưu Cookies</button>
+                            <span id="cookiesMsgResult" class="field-hint"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button id="btnCancelSettings" class="btn btn-secondary">Hủy</button>
+                    <button id="btnSaveAllSettings" class="btn btn-primary">Lưu Thay Đổi</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast Notification Container -->
+        <div id="toastContainer" class="toast-container"></div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

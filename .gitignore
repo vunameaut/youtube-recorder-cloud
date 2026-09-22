@@ -1,0 +1,7 @@
+temp/
+__pycache__/
+*.pyc
+.env
+.venv/
+history.json
+service_account.json
