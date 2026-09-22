@@ -108,7 +108,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (text) {
                     urlInput.value = text.trim();
                     showToast("Đã dán link!", "info");
-                    triggerCheckInfo(text.trim());
+                    triggerCheckInfo(text.trim(), false);
                 }
             } else {
                 urlInput.focus();
@@ -124,7 +124,7 @@ document.addEventListener("DOMContentLoaded", () => {
         videoPreview.classList.add("hidden");
     });
 
-    async function triggerCheckInfo(url) {
+    async function triggerCheckInfo(url, isManual = false) {
         if (!url || !url.includes("youtu")) return;
         btnCheck.disabled = true;
         btnCheck.innerHTML = `<span class="icon">⏳</span> Đang kiểm tra...`;
@@ -156,12 +156,12 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
 
                 videoPreview.classList.remove("hidden");
-                showToast("Đã nhận diện thông tin video!", "success");
+                if (isManual) showToast("Đã nhận diện thông tin video!", "success");
             } else {
-                showToast(data.error || "Không lấy được thông tin video.", "error");
+                if (isManual) showToast(data.error || "Không lấy được thông tin video.", "error");
             }
         } catch (e) {
-            showToast("Lỗi khi kiểm tra link.", "error");
+            if (isManual) showToast("Lỗi khi kiểm tra link.", "error");
         } finally {
             btnCheck.disabled = false;
             btnCheck.innerHTML = `<span class="icon">🔍</span> Kiểm Tra Link`;
@@ -174,13 +174,13 @@ document.addEventListener("DOMContentLoaded", () => {
             showToast("Vui lòng nhập link YouTube!", "error");
             return;
         }
-        triggerCheckInfo(url);
+        triggerCheckInfo(url, true);
     });
 
     urlInput.addEventListener("paste", () => {
         setTimeout(() => {
             const url = urlInput.value.trim();
-            if (url) triggerCheckInfo(url);
+            if (url) triggerCheckInfo(url, false);
         }, 100);
     });
 
