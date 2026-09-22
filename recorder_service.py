@@ -26,9 +26,9 @@ QUALITY_FORMAT_MAP = {
     "360p": "bestvideo*[height<=360]+bestaudio/best",
 }
 
-ANDROID_EXTRACTOR_ARGS = {
+CLOUD_EXTRACTOR_ARGS = {
     "youtube": {
-        "player_client": ["android"],
+        "player_client": ["visionos", "android"],
     }
 }
 
@@ -64,7 +64,7 @@ class TaskManager:
             "no_warnings": True,
             "skip_download": True,
             "format": target_fmt,
-            "extractor_args": ANDROID_EXTRACTOR_ARGS,
+            "extractor_args": CLOUD_EXTRACTOR_ARGS,
         }
         if cookies_file:
             opts["cookiefile"] = cookies_file
@@ -82,11 +82,11 @@ class TaskManager:
                     "resolution": info.get("resolution"),
                     "fps": info.get("fps"),
                 }
-        except Exception as e:
-            # Thử lại không kèm cookies
+        except Exception:
+            # Fallback mà không kèm cookies
             try:
                 opts.pop("cookiefile", None)
-                opts["extractor_args"] = ANDROID_EXTRACTOR_ARGS
+                opts["extractor_args"] = {"youtube": {"player_client": ["visionos"]}}
                 with yt_dlp.YoutubeDL(opts) as ydl:
                     info = ydl.extract_info(url, download=False)
                     return {
@@ -100,7 +100,7 @@ class TaskManager:
                         "fps": info.get("fps"),
                     }
             except Exception as e2:
-                print(f"[RECORDER] Warning check_info fallback: {e2}", flush=True)
+                print(f"[RECORDER] check_info fallback: {e2}", flush=True)
                 return {
                     "success": True,
                     "title": "YouTube Video / Livestream",
@@ -234,54 +234,47 @@ class TaskManager:
                     task["total_str"] = f"{total_bytes / (1024*1024):.1f} MB" if total_bytes else "Chưa xác định"
                     task["status_text"] = status_text
 
-            # Cấu hình tải cơ bản
             ydl_opts = {
                 "outtmpl": base_output,
                 "format": target_fmt,
                 "format_sort": ["res", "fps", "tbr", "vbr", "size"],
                 "merge_output_format": "mp4",
                 "continuedl": True,
-                "live_from_start": True,
+                "live_from_start": False,
                 "retries": 30,
                 "fragment_retries": 30,
                 "skip_unavailable_fragments": True,
                 "quiet": False,
                 "progress_hooks": [progress_hook],
-                "extractor_args": ANDROID_EXTRACTOR_ARGS,
+                "extractor_args": CLOUD_EXTRACTOR_ARGS,
             }
 
             if cookies_file:
                 ydl_opts["cookiefile"] = cookies_file
 
-            download_success = False
-
-            # Lần thử 1: Có live_from_start
+            print("[RECORDER] Đang tải luồng qua client visionos/android...", flush=True)
             try:
-                print("[RECORDER] Thử tải luồng (live_from_start=True)...", flush=True)
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
-                download_success = True
             except yt_dlp.utils.DownloadCancelled:
                 task["status_text"] = "Đã dừng tải theo yêu cầu."
-            except Exception as e1:
-                print(f"[RECORDER] live_from_start không hỗ trợ ({e1}), chuyển sang live realtime...", flush=True)
-                task["status_text"] = "⚠️ Đang chuyển sang chế độ ghi Live realtime..."
-                # Lần thử 2: Bỏ live_from_start (hỗ trợ 100% mọi livestream)
-                ydl_opts["live_from_start"] = False
-                ydl_opts.pop("cookiefile", None)
+            except Exception as dl_err:
+                print(f"[RECORDER] Thử lại không cookies: {dl_err}", flush=True)
+                task["status_text"] = "⚠️ Đang thử lại với luồng trực tiếp..."
                 try:
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl2:
-                        ydl2.download([url])
-                    download_success = True
+                    ydl_opts.pop("cookiefile", None)
+                    ydl_opts["extractor_args"] = {"youtube": {"player_client": ["visionos"]}}
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl_clean:
+                        ydl_clean.download([url])
                 except yt_dlp.utils.DownloadCancelled:
                     task["status_text"] = "Đã dừng tải theo yêu cầu."
-                except Exception as e2:
-                    print(f"[RECORDER] Lỗi tải cuối cùng: {e2}", flush=True)
-                    task["error"] = str(e2)
+                except Exception as final_err:
+                    print(f"[RECORDER] Lỗi tải: {final_err}", flush=True)
+                    task["error"] = str(final_err)
 
             task["status"] = "merging"
             task["status_text"] = "Đang kiểm tra và ghép file MP4..."
-            print("[RECORDER] Đang tìm và ghép file...", flush=True)
+            print("[RECORDER] Đang kiểm tra và ghép file...", flush=True)
             final_file = self.find_and_merge(base_output, task)
 
             if final_file and os.path.exists(final_file) and os.path.getsize(final_file) > 0:
@@ -293,9 +286,8 @@ class TaskManager:
 
                 filename = os.path.basename(final_file)
                 task["download_url"] = f"/api/files/{filename}"
-                print(f"[RECORDER] Đã có file video hoàn chỉnh: {final_file} ({size_str})", flush=True)
+                print(f"[RECORDER] File video hoàn chỉnh: {final_file} ({size_str})", flush=True)
 
-                # Bước ĐẨY LÊN GOOGLE DRIVE
                 task["status"] = "uploading"
                 task["status_text"] = "☁️ Đang đẩy video lên Google Drive..."
 
