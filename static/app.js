@@ -51,7 +51,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     let currentLanUrl = window.location.origin;
 
-    // ================= Toast Alerts =================
     function showToast(message, type = "info") {
         const container = document.getElementById("toastContainer");
         const toast = document.createElement("div");
@@ -69,26 +68,22 @@ document.addEventListener("DOMContentLoaded", () => {
         }, 4000);
     }
 
-    // ================= Load Server Info =================
     async function loadServerInfo() {
         try {
             const res = await fetch("/api/info");
             const data = await res.json();
             if (data) {
-                currentLanUrl = data.access_url || window.location.origin;
-                serverIp.textContent = data.access_url || `${data.lan_ip}:8000`;
+                currentLanUrl = window.location.origin;
+                serverIp.textContent = "Cloud 24/7";
                 accessUrlText.textContent = currentLanUrl;
                 
-                // Storage
-                if (data.save_dir) {
-                    storagePath.textContent = data.save_dir;
-                    storagePath.title = data.save_dir;
+                if (data.cloud_mode) {
+                    storagePath.textContent = data.cloud_mode;
                 }
-                if (data.storage) {
-                    storageSpace.textContent = `${data.storage.free_gb} GB trống`;
+                if (data.free_gb) {
+                    storageSpace.textContent = `${data.free_gb} GB trống`;
                 }
 
-                // Cookies
                 if (data.has_cookies) {
                     cookiesStatus.textContent = "Đã nạp";
                     cookiesStatus.className = "badge badge-success";
@@ -97,30 +92,27 @@ document.addEventListener("DOMContentLoaded", () => {
                     cookiesStatus.className = "badge";
                 }
 
-                // QR Code
                 const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=180x180&data=${encodeURIComponent(currentLanUrl)}`;
                 qrCodeImg.src = qrUrl;
             }
         } catch (e) {
-            console.error("Lỗi lấy thông tin server:", e);
             serverIp.textContent = "Mất kết nối";
             serverIp.className = "status-value text-danger";
         }
     }
 
-    // ================= Clipboard Paste =================
     btnPaste.addEventListener("click", async () => {
         try {
             if (navigator.clipboard && navigator.clipboard.readText) {
                 const text = await navigator.clipboard.readText();
                 if (text) {
                     urlInput.value = text.trim();
-                    showToast("Đã dán link từ clipboard!", "info");
+                    showToast("Đã dán link!", "info");
                     triggerCheckInfo(text.trim());
                 }
             } else {
                 urlInput.focus();
-                showToast("Vui lòng nhấn giữ để dán vào ô nhập!", "info");
+                showToast("Nhấn giữ để dán vào ô nhập!", "info");
             }
         } catch (e) {
             urlInput.focus();
@@ -132,7 +124,6 @@ document.addEventListener("DOMContentLoaded", () => {
         videoPreview.classList.add("hidden");
     });
 
-    // ================= Check Video Info =================
     async function triggerCheckInfo(url) {
         if (!url || !url.includes("youtu")) return;
         btnCheck.disabled = true;
@@ -158,7 +149,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     previewThumb.src = data.thumbnail;
                 }
 
-                if (data.is_live || data.live_status === "is_live") {
+                if (data.is_live) {
                     previewLiveBadge.classList.remove("hidden");
                 } else {
                     previewLiveBadge.classList.add("hidden");
@@ -180,21 +171,19 @@ document.addEventListener("DOMContentLoaded", () => {
     btnCheck.addEventListener("click", () => {
         const url = urlInput.value.trim();
         if (!url) {
-            showToast("Vui lòng nhập hoặc dán link YouTube!", "error");
+            showToast("Vui lòng nhập link YouTube!", "error");
             return;
         }
         triggerCheckInfo(url);
     });
 
-    // Auto-check on paste
-    urlInput.addEventListener("paste", (e) => {
+    urlInput.addEventListener("paste", () => {
         setTimeout(() => {
             const url = urlInput.value.trim();
             if (url) triggerCheckInfo(url);
         }, 100);
     });
 
-    // ================= Start Download =================
     btnStartDownload.addEventListener("click", async () => {
         const url = urlInput.value.trim();
         if (!url) {
@@ -217,7 +206,7 @@ document.addEventListener("DOMContentLoaded", () => {
             });
             const data = await res.json();
             if (data && data.success) {
-                showToast("🚀 Đã bắt đầu tải ngầm! Bạn có thể tắt web thoải mái.", "success");
+                showToast("🚀 Đã nhận lệnh tải ngầm trên Cloud! Bạn có thể tắt máy / tắt web thoải mái.", "success");
                 urlInput.value = "";
                 videoPreview.classList.add("hidden");
                 loadTasks();
@@ -225,16 +214,15 @@ document.addEventListener("DOMContentLoaded", () => {
                 showToast(data.detail || data.message || "Lỗi khi bắt đầu tải.", "error");
             }
         } catch (e) {
-            showToast("Không thể kết nối đến server.", "error");
+            showToast("Không thể kết nối đến Cloud server.", "error");
         } finally {
             btnStartDownload.disabled = false;
             btnStartDownload.innerHTML = `<span class="icon">🚀</span> BẮT ĐẦU TẢI NGẦM`;
         }
     });
 
-    // ================= Stop Download =================
     async function stopTask(taskId) {
-        if (!confirm("Bạn có chắc chắn muốn dừng tác vụ này? Phần video đã tải sẽ được ghép lại và lưu vào Driver.")) {
+        if (!confirm("Bạn có chắc chắn muốn dừng tác vụ này? Phần video đã tải sẽ được ghép lại.")) {
             return;
         }
         try {
@@ -255,9 +243,8 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // ================= Render Tasks =================
     function renderTasks(tasks) {
-        const active = (tasks || []).filter(t => ["pending", "checking", "downloading", "merging"].includes(t.status));
+        const active = (tasks || []).filter(t => ["pending", "checking", "downloading", "merging", "uploading"].includes(t.status));
         activeCount.textContent = active.length;
 
         if (active.length === 0) {
@@ -274,18 +261,19 @@ document.addEventListener("DOMContentLoaded", () => {
             const card = document.createElement("div");
             card.className = "task-card glass-card";
 
-            const isIndeterminate = (t.progress_percent < 0 || t.status === "merging");
+            const isIndeterminate = (t.progress_percent < 0 || t.status === "merging" || t.status === "uploading");
             const pct = isIndeterminate ? 100 : Math.max(0, Math.min(100, t.progress_percent || 0));
 
             let statusBadge = `<span class="badge badge-success">Đang tải</span>`;
             if (t.is_live) statusBadge = `<span class="badge badge-live">🔴 LIVE</span>`;
             if (t.status === "merging") statusBadge = `<span class="badge" style="background: rgba(245, 158, 11, 0.2); color: #f59e0b;">🎬 Đang ghép file</span>`;
+            if (t.status === "uploading") statusBadge = `<span class="badge" style="background: rgba(56, 189, 248, 0.2); color: #38bdf8;">☁️ Đẩy lên Drive</span>`;
 
             card.innerHTML = `
                 <div class="task-header">
                     <div style="flex: 1; min-width: 0;">
                         <div class="task-title" title="${t.title || t.url}">${t.title || t.url}</div>
-                        <div class="task-meta">👤 ${t.uploader || "Đang kết nối..."} • 🎯 ${t.quality}</div>
+                        <div class="task-meta">👤 ${t.uploader || "Cloud Worker"} • 🎯 ${t.quality}</div>
                     </div>
                     <div>${statusBadge}</div>
                 </div>
@@ -303,7 +291,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
                 <div class="task-footer">
                     <span class="task-status-text">${t.status_text || "Đang xử lý..."}</span>
-                    <button class="btn btn-small btn-danger" onclick="window._stopTask('${t.id}')">🛑 Dừng & Lưu</button>
+                    <button class="btn btn-small btn-danger" onclick="window._stopTask('${t.id}')">🛑 Dừng</button>
                 </div>
             `;
             activeTasksList.appendChild(card);
@@ -312,18 +300,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
     window._stopTask = stopTask;
 
-    // ================= Load Tasks & Polling =================
     async function loadTasks() {
         try {
             const res = await fetch("/api/tasks");
             const tasks = await res.json();
             renderTasks(tasks);
-        } catch (e) {
-            console.error("Lỗi lấy danh sách tác vụ:", e);
-        }
+        } catch (e) {}
     }
 
-    // WebSocket Setup
     function setupWebSocket() {
         const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
         const wsUrl = `${protocol}//${window.location.host}/ws/tasks`;
@@ -337,13 +321,8 @@ document.addEventListener("DOMContentLoaded", () => {
                     renderTasks(tasks);
                 } catch (e) {}
             };
-            ws.onerror = () => {
-                console.warn("WebSocket error, chuyển sang chế độ polling.");
-                startPolling();
-            };
-            ws.onclose = () => {
-                setTimeout(setupWebSocket, 5000);
-            };
+            ws.onerror = () => startPolling();
+            ws.onclose = () => setTimeout(setupWebSocket, 5000);
         } catch (e) {
             startPolling();
         }
@@ -356,15 +335,12 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
-    // ================= Download History =================
     async function loadHistory() {
         try {
             const res = await fetch("/api/history");
             const list = await res.json();
             renderHistory(list);
-        } catch (e) {
-            console.error("Lỗi tải lịch sử:", e);
-        }
+        } catch (e) {}
     }
 
     function renderHistory(list) {
@@ -378,7 +354,7 @@ document.addEventListener("DOMContentLoaded", () => {
         emptyHistory.classList.add("hidden");
         historyList.innerHTML = "";
 
-        list.slice(0, 20).forEach(item => {
+        list.slice(0, 25).forEach(item => {
             const div = document.createElement("div");
             div.className = "history-item";
 
@@ -388,19 +364,26 @@ document.addEventListener("DOMContentLoaded", () => {
 
             const dateStr = item.finished_at ? new Date(item.finished_at).toLocaleString("vi-VN") : item.created_at;
 
+            let actionBtn = "";
+            if (item.web_link) {
+                actionBtn = `<a href="${item.web_link}" target="_blank" class="btn btn-small btn-primary" style="margin-right: 6px;">📁 Xem Drive</a>`;
+            } else if (item.download_url) {
+                actionBtn = `<a href="${item.download_url}" download class="btn btn-small btn-secondary" style="margin-right: 6px;">⬇️ Tải về</a>`;
+            }
+
             div.innerHTML = `
                 <div class="history-info">
                     <div class="history-title" title="${item.title}">${item.title || item.url}</div>
                     <div class="history-sub">
                         <span>${dateStr}</span> • <span>${item.quality}</span>
-                        ${item.save_dir ? ` • <span title="${item.save_dir}">📁 Driver</span>` : ''}
                     </div>
                 </div>
-                <div class="history-meta-right">
+                <div class="history-meta-right" style="display: flex; align-items: center; gap: 8px;">
+                    ${actionBtn}
                     <div class="history-size">${item.file_size_str || "--"}</div>
                     <span class="badge ${badgeClass}">${statusLabel}</span>
+                    <button class="btn-inline" onclick="window._deleteHistory('${item.id}')" title="Xóa">✕</button>
                 </div>
-                <button class="btn-inline" onclick="window._deleteHistory('${item.id}')" title="Xóa khỏi lịch sử">✕</button>
             `;
             historyList.appendChild(div);
         });
@@ -415,7 +398,6 @@ document.addEventListener("DOMContentLoaded", () => {
 
     btnRefreshHistory.addEventListener("click", loadHistory);
 
-    // ================= Modals Logic =================
     btnConnect.addEventListener("click", () => {
         modalConnect.classList.remove("hidden");
     });
@@ -423,18 +405,15 @@ document.addEventListener("DOMContentLoaded", () => {
     btnCopyUrl.addEventListener("click", () => {
         if (navigator.clipboard) {
             navigator.clipboard.writeText(currentLanUrl);
-            showToast("Đã sao chép liên kết vào clipboard!", "success");
+            showToast("Đã sao chép link trang web!", "success");
         }
     });
 
     btnSettings.addEventListener("click", async () => {
         modalSettings.classList.remove("hidden");
-        // Load settings
         try {
             const res = await fetch("/api/config");
             const cfg = await res.json();
-            cfgSaveDir.value = cfg.default_save_dir || "";
-            cfgAutoSubfolder.checked = !!cfg.auto_subfolder_date;
             cfgDefaultQuality.value = cfg.default_quality || "1080p (Full HD)";
             cfgTeleToken.value = cfg.telegram_token || "";
             cfgTeleChatId.value = cfg.telegram_chat_id || "";
@@ -452,15 +431,12 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // Save All Settings
     btnSaveAllSettings.addEventListener("click", async () => {
         try {
             const res = await fetch("/api/config", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    default_save_dir: cfgSaveDir.value.trim(),
-                    auto_subfolder_date: cfgAutoSubfolder.checked,
                     default_quality: cfgDefaultQuality.value,
                     telegram_token: cfgTeleToken.value.trim(),
                     telegram_chat_id: cfgTeleChatId.value.trim(),
@@ -468,20 +444,18 @@ document.addEventListener("DOMContentLoaded", () => {
             });
             const data = await res.json();
             if (data.success) {
-                showToast("Đã lưu cài đặt thành công!", "success");
+                showToast("Đã lưu cài đặt!", "success");
                 modalSettings.classList.add("hidden");
                 loadServerInfo();
             }
         } catch (e) {
-            showToast("Lỗi khi lưu cài đặt.", "error");
+            showToast("Lỗi lưu cài đặt.", "error");
         }
     });
 
-    // Test Telegram
     btnTestTele.addEventListener("click", async () => {
         teleMsgResult.textContent = "Đang gửi thử...";
         try {
-            // First update config to ensure using typed tokens
             await fetch("/api/config", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -501,12 +475,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 teleMsgResult.style.color = "var(--danger)";
             }
         } catch (e) {
-            teleMsgResult.textContent = "❌ Không thể kết nối";
+            teleMsgResult.textContent = "❌ Không kết nối được";
             teleMsgResult.style.color = "var(--danger)";
         }
     });
 
-    // Save Cookies
     btnSaveCookies.addEventListener("click", async () => {
         cookiesMsgResult.textContent = "Đang lưu...";
         try {
@@ -527,12 +500,9 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     });
 
-    // Init
     loadServerInfo();
     loadTasks();
     loadHistory();
     setupWebSocket();
-
-    // Auto refresh history every 10s
     setInterval(loadHistory, 10000);
 });

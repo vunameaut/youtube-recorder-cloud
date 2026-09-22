@@ -26,6 +26,17 @@ QUALITY_FORMAT_MAP = {
     "360p": "bestvideo*[height<=360]+bestaudio/best",
 }
 
+DEFAULT_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+}
+
+YOUTUBE_EXTRACTOR_ARGS = {
+    "youtube": {
+        "player_client": ["android", "ios", "web"],
+    }
+}
+
 def resolve_ffmpeg_path():
     candidates = [
         shutil.which("ffmpeg"),
@@ -52,11 +63,14 @@ class TaskManager:
     def check_info(self, url: str, quality: str = None):
         target_fmt = QUALITY_FORMAT_MAP.get(quality, "bestvideo*+bestaudio/best")
         cookies_file = get_cookies_path()
+
         opts = {
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
             "format": target_fmt,
+            "extractor_args": YOUTUBE_EXTRACTOR_ARGS,
+            "http_headers": DEFAULT_HEADERS,
         }
         if cookies_file:
             opts["cookiefile"] = cookies_file
@@ -75,7 +89,27 @@ class TaskManager:
                     "fps": info.get("fps"),
                 }
         except Exception as e:
-            return {"success": False, "error": str(e)}
+            err_msg = str(e)
+            # Tự động khắc phục lỗi bot / cookies hết hạn
+            if "bot" in err_msg.lower() or "sign in" in err_msg.lower() or "reload" in err_msg.lower():
+                opts.pop("cookiefile", None)
+                opts["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
+                try:
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        return {
+                            "success": True,
+                            "title": info.get("title", "Unknown"),
+                            "uploader": info.get("uploader", "Unknown"),
+                            "is_live": info.get("is_live", False) or info.get("live_status") == "is_live",
+                            "duration": info.get("duration"),
+                            "thumbnail": info.get("thumbnail"),
+                            "resolution": info.get("resolution"),
+                            "fps": info.get("fps"),
+                        }
+                except Exception as e2:
+                    return {"success": False, "error": f"Lỗi YouTube: {e2}"}
+            return {"success": False, "error": err_msg}
 
     def find_and_merge(self, base_output: str, task: dict):
         folder = os.path.dirname(base_output)
@@ -208,6 +242,8 @@ class TaskManager:
                 "skip_unavailable_fragments": True,
                 "quiet": True,
                 "progress_hooks": [progress_hook],
+                "extractor_args": YOUTUBE_EXTRACTOR_ARGS,
+                "http_headers": DEFAULT_HEADERS,
             }
 
             if cookies_file:
@@ -219,9 +255,19 @@ class TaskManager:
             except yt_dlp.utils.DownloadCancelled:
                 task["status_text"] = "Đã dừng tải theo yêu cầu."
             except Exception as dl_err:
-                task["error"] = str(dl_err)
+                err_str = str(dl_err)
+                if "bot" in err_str.lower() or "sign in" in err_str.lower() or "reload" in err_str.lower():
+                    task["status_text"] = "⚠️ Vượt kiểm tra bot YouTube qua Android client..."
+                    try:
+                        ydl_opts.pop("cookiefile", None)
+                        ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
+                        with yt_dlp.YoutubeDL(ydl_opts) as ydl_retry:
+                            ydl_retry.download([url])
+                    except Exception as dl_retry_err:
+                        task["error"] = str(dl_retry_err)
+                else:
+                    task["error"] = err_str
 
-            # Ghép file
             task["status"] = "merging"
             task["status_text"] = "Đang kiểm tra và ghép file MP4..."
             final_file = self.find_and_merge(base_output, task)
@@ -232,6 +278,9 @@ class TaskManager:
                 size_mb = size_bytes / (1024**2)
                 size_str = f"{size_gb:.2f} GB" if size_gb >= 1 else f"{size_mb:.1f} MB"
                 task["file_size_str"] = size_str
+
+                filename = os.path.basename(final_file)
+                task["download_url"] = f"/api/files/{filename}"
 
                 # Bước ĐẨY LÊN GOOGLE DRIVE
                 task["status"] = "uploading"
@@ -254,15 +303,14 @@ class TaskManager:
                         f"🎉 [CLOUD] TẢI & LƯU GOOGLE DRIVE THÀNH CÔNG!\n🎬 {task['title']}\n💾 Dung lượng: {size_str}\n🔗 Link Drive: {web_link}"
                     )
 
-                    # Dọn dẹp file tạm trên Cloud để không làm đầy ổ đĩa
                     try:
                         os.remove(final_file)
                     except Exception:
                         pass
                 else:
-                    task["status"] = "completed_local"
-                    task["status_text"] = f"Đã tải xong nhưng lỗi upload Drive: {upload_res.get('error')}"
-                    send_telegram(f"⚠️ [CLOUD] Đã tải xong nhưng không đẩy được lên Drive: {upload_res.get('error')}")
+                    task["status"] = "completed"
+                    task["status_text"] = f"🎉 Đã tải hoàn tất ({size_str})! (Chưa liên kết Drive API, bạn có thể tải file trực tiếp)"
+                    send_telegram(f"🎉 [CLOUD] Đã tải hoàn tất video:\n🎬 {task['title']}\n💾 Dung lượng: {size_str}")
             else:
                 task["status"] = "error"
                 task["status_text"] = f"Lỗi không tạo được file: {task.get('error', '')}"
@@ -287,6 +335,7 @@ class TaskManager:
                 "created_at": task["created_at"],
                 "finished_at": task["finished_at"],
                 "web_link": task.get("web_link", ""),
+                "download_url": task.get("download_url", ""),
                 "file_size_str": task.get("file_size_str", "0 MB"),
                 "error": task.get("error")
             })
@@ -315,6 +364,7 @@ class TaskManager:
             "finished_at": None,
             "should_stop": False,
             "web_link": "",
+            "download_url": "",
             "error": None,
         }
 
