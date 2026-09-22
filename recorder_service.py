@@ -26,14 +26,15 @@ QUALITY_FORMAT_MAP = {
     "360p": "bestvideo*[height<=360]+bestaudio/best",
 }
 
-DEFAULT_HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+IOS_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
     "Accept-Language": "en-US,en;q=0.9",
 }
 
 YOUTUBE_EXTRACTOR_ARGS = {
     "youtube": {
-        "player_client": ["android", "ios", "web"],
+        "player_client": ["ios", "android"],
+        "player_skip": ["webpage", "configs"]
     }
 }
 
@@ -70,7 +71,7 @@ class TaskManager:
             "skip_download": True,
             "format": target_fmt,
             "extractor_args": YOUTUBE_EXTRACTOR_ARGS,
-            "http_headers": DEFAULT_HEADERS,
+            "http_headers": IOS_HEADERS,
         }
         if cookies_file:
             opts["cookiefile"] = cookies_file
@@ -90,26 +91,24 @@ class TaskManager:
                 }
         except Exception as e:
             err_msg = str(e)
-            # Tự động khắc phục lỗi bot / cookies hết hạn
-            if "bot" in err_msg.lower() or "sign in" in err_msg.lower() or "reload" in err_msg.lower():
+            # Tự động thử lại không kèm cookies với client ios/android
+            try:
                 opts.pop("cookiefile", None)
-                opts["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
-                try:
-                    with yt_dlp.YoutubeDL(opts) as ydl:
-                        info = ydl.extract_info(url, download=False)
-                        return {
-                            "success": True,
-                            "title": info.get("title", "Unknown"),
-                            "uploader": info.get("uploader", "Unknown"),
-                            "is_live": info.get("is_live", False) or info.get("live_status") == "is_live",
-                            "duration": info.get("duration"),
-                            "thumbnail": info.get("thumbnail"),
-                            "resolution": info.get("resolution"),
-                            "fps": info.get("fps"),
-                        }
-                except Exception as e2:
-                    return {"success": False, "error": f"Lỗi YouTube: {e2}"}
-            return {"success": False, "error": err_msg}
+                opts["extractor_args"] = {"youtube": {"player_client": ["ios", "android"], "player_skip": ["webpage", "configs"]}}
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    return {
+                        "success": True,
+                        "title": info.get("title", "Unknown"),
+                        "uploader": info.get("uploader", "Unknown"),
+                        "is_live": info.get("is_live", False) or info.get("live_status") == "is_live",
+                        "duration": info.get("duration"),
+                        "thumbnail": info.get("thumbnail"),
+                        "resolution": info.get("resolution"),
+                        "fps": info.get("fps"),
+                    }
+            except Exception as e2:
+                return {"success": False, "error": f"Lỗi YouTube: {e2}"}
 
     def find_and_merge(self, base_output: str, task: dict):
         folder = os.path.dirname(base_output)
@@ -243,7 +242,7 @@ class TaskManager:
                 "quiet": True,
                 "progress_hooks": [progress_hook],
                 "extractor_args": YOUTUBE_EXTRACTOR_ARGS,
-                "http_headers": DEFAULT_HEADERS,
+                "http_headers": IOS_HEADERS,
             }
 
             if cookies_file:
@@ -255,18 +254,15 @@ class TaskManager:
             except yt_dlp.utils.DownloadCancelled:
                 task["status_text"] = "Đã dừng tải theo yêu cầu."
             except Exception as dl_err:
-                err_str = str(dl_err)
-                if "bot" in err_str.lower() or "sign in" in err_str.lower() or "reload" in err_str.lower():
-                    task["status_text"] = "⚠️ Vượt kiểm tra bot YouTube qua Android client..."
-                    try:
-                        ydl_opts.pop("cookiefile", None)
-                        ydl_opts["extractor_args"] = {"youtube": {"player_client": ["android", "ios"]}}
-                        with yt_dlp.YoutubeDL(ydl_opts) as ydl_retry:
-                            ydl_retry.download([url])
-                    except Exception as dl_retry_err:
-                        task["error"] = str(dl_retry_err)
-                else:
-                    task["error"] = err_str
+                # Tự động thử lại không kèm cookies qua iOS client
+                task["status_text"] = "⚠️ Đang vượt kiểm tra bot bằng iOS/Android client..."
+                try:
+                    ydl_opts.pop("cookiefile", None)
+                    ydl_opts["extractor_args"] = {"youtube": {"player_client": ["ios", "android"], "player_skip": ["webpage", "configs"]}}
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl_retry:
+                        ydl_retry.download([url])
+                except Exception as dl_retry_err:
+                    task["error"] = str(dl_retry_err)
 
             task["status"] = "merging"
             task["status_text"] = "Đang kiểm tra và ghép file MP4..."
