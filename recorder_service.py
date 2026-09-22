@@ -82,8 +82,8 @@ class TaskManager:
                     "resolution": info.get("resolution"),
                     "fps": info.get("fps"),
                 }
-        except Exception:
-            # Thử lại tuyệt đối không kèm cookies với luồng Android sạch
+        except Exception as e:
+            # Thử lại không kèm cookies
             try:
                 opts.pop("cookiefile", None)
                 opts["extractor_args"] = ANDROID_EXTRACTOR_ARGS
@@ -100,7 +100,7 @@ class TaskManager:
                         "fps": info.get("fps"),
                     }
             except Exception as e2:
-                # Trả về fallback an toàn để người dùng vẫn ấn tải được mà không bị chặn
+                print(f"[RECORDER] Warning check_info fallback: {e2}", flush=True)
                 return {
                     "success": True,
                     "title": "YouTube Video / Livestream",
@@ -147,6 +147,7 @@ class TaskManager:
 
         if video_file and audio_file:
             task["status_text"] = "🎬 Đang ghép Video + Audio qua FFmpeg..."
+            print(f"[RECORDER] Ghép file FFmpeg: {video_file} + {audio_file}", flush=True)
             final_file = base_output.replace(".mp4", "_FINAL.mp4")
             cmd = [
                 self.ffmpeg_path,
@@ -167,7 +168,8 @@ class TaskManager:
                     return final_file
                 else:
                     return video_file
-            except Exception:
+            except Exception as e:
+                print(f"[RECORDER] FFmpeg error: {e}", flush=True)
                 return video_file
 
         return video_file or audio_file or (base_output if os.path.exists(base_output) else None)
@@ -181,6 +183,9 @@ class TaskManager:
         quality = task["quality"]
         cookies_file = get_cookies_path()
 
+        print(f"\n[RECORDER] ========== BẮT ĐẦU TÁC VỤ {task_id} ==========", flush=True)
+        print(f"[RECORDER] URL: {url} | Chất lượng: {quality}", flush=True)
+
         task["status"] = "downloading"
         task["status_text"] = "Đang kết nối luồng YouTube..."
 
@@ -192,6 +197,7 @@ class TaskManager:
                 task["thumbnail"] = info_res.get("thumbnail", task["thumbnail"])
                 task["is_live"] = info_res.get("is_live", False)
 
+            print(f"[RECORDER] Đã xác định video: {task['title']} (Kênh: {task['uploader']})", flush=True)
             send_telegram(f"🚀 [CLOUD] Bắt đầu tải video/livestream:\n🎬 {task['title']}\n📺 {url}")
 
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -228,6 +234,7 @@ class TaskManager:
                     task["total_str"] = f"{total_bytes / (1024*1024):.1f} MB" if total_bytes else "Chưa xác định"
                     task["status_text"] = status_text
 
+            # Cấu hình tải cơ bản
             ydl_opts = {
                 "outtmpl": base_output,
                 "format": target_fmt,
@@ -238,7 +245,7 @@ class TaskManager:
                 "retries": 30,
                 "fragment_retries": 30,
                 "skip_unavailable_fragments": True,
-                "quiet": True,
+                "quiet": False,
                 "progress_hooks": [progress_hook],
                 "extractor_args": ANDROID_EXTRACTOR_ARGS,
             }
@@ -246,23 +253,35 @@ class TaskManager:
             if cookies_file:
                 ydl_opts["cookiefile"] = cookies_file
 
+            download_success = False
+
+            # Lần thử 1: Có live_from_start
             try:
+                print("[RECORDER] Thử tải luồng (live_from_start=True)...", flush=True)
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     ydl.download([url])
+                download_success = True
             except yt_dlp.utils.DownloadCancelled:
                 task["status_text"] = "Đã dừng tải theo yêu cầu."
-            except Exception as dl_err:
-                task["status_text"] = "⚠️ Vượt kiểm tra bot với Android client sạch..."
+            except Exception as e1:
+                print(f"[RECORDER] live_from_start không hỗ trợ ({e1}), chuyển sang live realtime...", flush=True)
+                task["status_text"] = "⚠️ Đang chuyển sang chế độ ghi Live realtime..."
+                # Lần thử 2: Bỏ live_from_start (hỗ trợ 100% mọi livestream)
+                ydl_opts["live_from_start"] = False
+                ydl_opts.pop("cookiefile", None)
                 try:
-                    ydl_opts.pop("cookiefile", None)
-                    ydl_opts["extractor_args"] = ANDROID_EXTRACTOR_ARGS
-                    with yt_dlp.YoutubeDL(ydl_opts) as ydl_retry:
-                        ydl_retry.download([url])
-                except Exception as dl_retry_err:
-                    task["error"] = str(dl_retry_err)
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl2:
+                        ydl2.download([url])
+                    download_success = True
+                except yt_dlp.utils.DownloadCancelled:
+                    task["status_text"] = "Đã dừng tải theo yêu cầu."
+                except Exception as e2:
+                    print(f"[RECORDER] Lỗi tải cuối cùng: {e2}", flush=True)
+                    task["error"] = str(e2)
 
             task["status"] = "merging"
             task["status_text"] = "Đang kiểm tra và ghép file MP4..."
+            print("[RECORDER] Đang tìm và ghép file...", flush=True)
             final_file = self.find_and_merge(base_output, task)
 
             if final_file and os.path.exists(final_file) and os.path.getsize(final_file) > 0:
@@ -274,6 +293,7 @@ class TaskManager:
 
                 filename = os.path.basename(final_file)
                 task["download_url"] = f"/api/files/{filename}"
+                print(f"[RECORDER] Đã có file video hoàn chỉnh: {final_file} ({size_str})", flush=True)
 
                 # Bước ĐẨY LÊN GOOGLE DRIVE
                 task["status"] = "uploading"
@@ -302,20 +322,24 @@ class TaskManager:
                         pass
                 else:
                     task["status"] = "completed"
-                    task["status_text"] = f"🎉 Đã tải hoàn tất ({size_str})! (Chưa liên kết Drive API, bạn có thể tải file trực tiếp)"
+                    task["status_text"] = f"🎉 Đã tải hoàn tất ({size_str})! (Bấm nút Tải về để tải về máy)"
                     send_telegram(f"🎉 [CLOUD] Đã tải hoàn tất video:\n🎬 {task['title']}\n💾 Dung lượng: {size_str}")
             else:
                 task["status"] = "error"
-                task["status_text"] = f"Lỗi không tạo được file: {task.get('error', '')}"
+                err_detail = task.get("error") or "Không tạo được file sau khi ghi"
+                task["status_text"] = f"Lỗi: {err_detail}"
+                print(f"[RECORDER] Thất bại: {err_detail}", flush=True)
 
         except Exception as ex:
             task["status"] = "error"
             task["error"] = str(ex)
             task["status_text"] = f"Lỗi: {ex}"
+            print(f"[RECORDER] Exception ngoài cùng: {ex}", flush=True)
             send_telegram(f"❌ [CLOUD] Lỗi tải: {ex}")
 
         finally:
             task["finished_at"] = datetime.now().isoformat()
+            print(f"[RECORDER] ========== KẾT THÚC TÁC VỤ {task_id} ==========\n", flush=True)
             add_or_update_record({
                 "id": task["id"],
                 "url": task["url"],
